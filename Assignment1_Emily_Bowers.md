@@ -25,6 +25,7 @@ print("df.td is 506.4 KB")
 format(object.size(NHIS_2007_RData),units="KB")
 print("NHIS_2007_RData is 188.5 KB")
 print("The csv and the .RData files are the smallest")
+print("The variability in the data is because the different programs save the files with a different number of characters. Some use more characters to accomplish the same things.")
 
 #Question 3, typeof and class of the .rdata
 typeof(NHIS_2007_RData)
