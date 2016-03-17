@@ -1,0 +1,203 @@
+---
+title: 'ECON 294A: Final Exam'
+author: "Emily Bowers"
+date: "March 16, 2016"
+output: pdf_document
+---
+
+```{r, echo=FALSE}
+#install.packages("dplyr")
+library("dplyr")  #for dplyr
+#install.packages("RSQLite")
+library("RSQLite") #for sqllite
+#install.packages("nycflights13")
+library("nycflights13") #for data
+#install.packages("ggplot2")
+library(ggplot2)
+my_db <- nycflights13_sqlite()
+flights_sqlite <- tbl(my_db, "flights")
+airlines_sqlite <- tbl(my_db, "airlines")
+airports_sqlite <- tbl(my_db, "airports")
+planes_sqlite <- tbl(my_db, "planes")
+weather_sqlite <- tbl(my_db, "weather")
+
+flights = tbl(my_db, "flights") %>% 
+  collect() %>%
+  mutate(canceled = is.na(arr_time))
+weather = tbl(my_db, "weather") %>% 
+  collect()
+airports = tbl(my_db, "airports") %>% 
+  collect()
+airlines = tbl(my_db, "airlines") %>% 
+  collect()
+planes = tbl(my_db, "planes") %>% 
+  collect()
+flights$canceled<- ifelse(flights$canceled==TRUE,1,0)
+```
+
+```{r, echo= FALSE}
+flights<- flights %>%
+  mutate(
+    date= as.Date(paste(month, year, day, hour, sep="."), format="%m.%Y.%d.%H")
+  )
+weathjoin<- left_join(flights, weather,
+                      by=c("year", "month","day","hour"))
+
+join<- left_join((weathjoin), (planes), by="tailnum")
+join2<- left_join(join, airports, by= c("dest"="faa"))
+summary(flights$canceled)
+summary(flights$dep_delay)
+```
+
+
+#Regressing departure delay on flights canceled and flights canceled on departure delay:
+```{r, echo=FALSE}
+f1logit<- glm(canceled~dep_delay,join2,family=binomial(link="logit"))
+summary(f1logit)
+```
+###You can see from this model that departure delay time, minutes, is a significant determiniant of flight cancelations. Since this is a logit model we won't interpret the coefficient.
+```{r, echo=FALSE}
+f1linear<- lm(dep_delay~canceled, join2)
+summary(f1linear)
+```
+###From this model you can see that flight cancelations are also a significant determinant of departure delays. This relationship is not very meaningful since a flight would have to be delayed before it was canceled, but it is important to note anyways because it tells us that there is a correlation between the two variables.
+
+#Part a
+##First lets look at the top 10 delayed flights by Temperature and Wind Gust Respectively:
+```{r, echo=FALSE}
+desdel<- arrange(join2, desc(dep_delay))
+#Temperature
+head(desdel$temp, 10)
+#Wind Gust
+head(desdel$wind_gust, 10)
+```
+###It doesn't look like there is a unique relationship between either variable and delayed flights
+
+##Let's run a logit regression with flight cancelations as our dependent variable:
+```{r, echo=FALSE}
+falogit<- glm(canceled~temp+dewp+humid+precip+wind_speed+pressure+visib,join2,family=binomial(link="logit"))
+summary(falogit)
+```
+###You can see from the regression results that temperature, humidity, pressure, and visibility have a negative statistically significant relationshipship with flight cancelations.So as these variables increase the probability of having your flight canceled decreases.This seams reasonable. Dewpoint is also statistically significant and has a positive relationship with flight cancelations. So as the dewpoint increases your flight is more likely to be canceled. 
+
+
+##Now let's run a linear regression with departure delay as our independent variable:
+```{r, echo=FALSE}
+falinear<- lm(dep_delay~temp+dewp+humid+precip+wind_speed+pressure+visib, join2)
+summary(falinear)
+```
+###The results from this regression tell us that all of the weather variables we included have a statistically significant relationship with departure delays. This seems reasonable since weather is an important factor when flying. It looks like temperature, humidity, pressure, and visibility have a negative relationship with departure delays which is consistent with our first regression. Dewpoint, precipitation, and wind speed have a positive relationship with departure delays which makes sense, the most influential is precipitation with a coefficient of about 51.
+
+#Part b
+```{r, echo=FALSE}
+fblogit<- glm(canceled~hour+minute+month+day+dep_time+arr_time, join2, family=binomial(link="probit"))
+summary(fblogit)
+```
+###This logit model did not converge which is likely why we don't see any statistically significant determinants of flight cancelations for this model. 
+```{r, echo=FALSE}
+fblinear<- lm(dep_delay~+hour+minute+month+day+dep_time+arr_time, join2)
+summary(fblinear)
+```
+###It looks like hour in the day, minute in the day, month in the year, and arrival time are statistically significant determinants of departure delay. Hour has a positive relationship with departure delay and it looks like as you increase by 1 hour in the day you are likely to be delayed by about 3.5 minutes more, holding all else constant. This makes sense since most things slow down as the day goes on. It looks like minute, day, and arrival time have a negative relationship with departure delays. So as those variables increase we are likely to have lower departure delays. 
+```{r, echo=FALSE}
+plot(join2$hour, join2$dep_delay)
+```
+
+###Looks like there are more delays at night and the least amount of delays in the mornings
+```{r, echo=FALSE}
+plot(join2$hour, join2$canceled)
+```
+
+###Hardly any flights were canceled around midnight to 5 am
+
+
+##This plot shows departure time as a function of departure delays sorted by flight origin:
+```{r, echo=FALSE}
+library(ggplot2)
+library(reshape2)
+
+plot_delay<-ggplot(flights, 
+                     aes(x=dep_delay, y=dep_time))
+plot_delay+geom_point()
+plot_delay+geom_point(aes(colour=origin, alpha=0.5))
+```
+
+
+#Summary Stats for different variables:
+```{r, echo=FALSE}
+join2.summary<- join2 %>%
+  dplyr::group_by(day) %>%
+  dplyr::summarise(
+    flights.canceled = sum(canceled, na.rm= TRUE),
+    flights.delayed = sum(dep_delay, na.rm= TRUE),
+    flights.total= n(),
+    flight.cancel.percent = 100*(sum(canceled, na.rm= TRUE)/n()),
+    delay_min = min(dep_delay, na.rm = TRUE),
+    delay_1stQ = quantile(dep_delay, 0.25, na.rm = TRUE),
+    delay_mean = mean(dep_delay, na.rm = TRUE),
+    delay_median = median(dep_delay, na.rm = TRUE),
+    delay_3rdQ = quantile(dep_delay, 0.75, na.rm = TRUE),
+    delay_max = max(dep_delay, na.rm = TRUE)
+  )
+summary(join2.summary)
+```
+
+#Plot of median departure delay over time
+```{r, echo=FALSE}
+#Median Departure Delay over time
+MedDepDelay <-join2 %>%
+  dplyr::group_by(year.x, month) %>%    
+  dplyr::summarize(
+    dep_delay.med = median(dep_delay, na.rm = TRUE)
+  )
+MedDepDelay$date<- as.Date(paste(MedDepDelay$month, MedDepDelay$year, "01", sep="."), format = "%m.%Y.%d")
+ggplot(data=MedDepDelay, aes(x=date, y=dep_delay.med)) + geom_line()
+```
+
+#Plot of mean departure delay over time
+```{r, echo=FALSE}
+mean_delay <-join2 %>%
+  dplyr::group_by(year.x, month) %>%      
+  dplyr::summarize(
+    delay_min = min(dep_delay, na.rm = TRUE),
+    delay_mean = mean(dep_delay, na.rm = TRUE),
+    delay_max = max(dep_delay, na.rm = TRUE)
+  )
+mean_delay$date<- as.Date(paste(mean_delay$month, mean_delay$year, "01", sep="."), format = "%m.%Y.%d")
+ggplot(data=mean_delay, aes(x=date, y=delay_mean)) + geom_line()
+```
+
+
+#Part c
+##Logit model with flight cancelations as the dependent variable:
+```{r, echo=FALSE}
+fc<- glm(canceled~dest, join2, family=binomial(link="logit"))
+summary(fc)
+```
+###It looks like flight destination is not a good predictor of flight cancelations as none of our coefficients are significant
+
+
+#Linear model with departure delays as the dependent variable:
+```{r, echo=FALSE}
+fclinear<- lm(dep_delay~dest, join2)
+summary(fclinear)
+```
+###It looks like some destinations are good predictors of flight delays, such as BHM, CAE, DSM, OKC, RIC, TUL, and TYS. If you are flying to any of these airports you should expect flight delays about the length of the coerresponding coefficient. Some other destinations have significance also but those destinations were the most significant. 
+
+#Part d
+##Logit model with flight cancelations as the dependent variable:
+```{r, echo=FALSE}
+fd<- glm(canceled~manufacturer+engines+seats+model+engine, join2, family=binomial(link="logit"))
+summary(fd)
+```
+###It looks like different plane characteristics are not good predictors of flight cancelations
+
+#Linear model with departure delays as the dependent variable:
+```{r, echo=FALSE}
+fdlinear<- lm(dep_delay~manufacturer+engines+seats+model+engine, join2)
+summary(fdlinear)
+```
+###It looks like many air craft manufacturers and airplane models are significant determinants of flight delays, too many to list, engine type does not seem to be a significant determinant of departure delays.
+
+##In summary many factors from all 4 catergories were picked out as significant determinants of flight delays, however we must remember that correlation does not imply causation.
+
